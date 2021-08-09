@@ -92,6 +92,13 @@ str(lineage.data.full)
 #Make seurat object, min cells 10 (Only include features/genes found in at least n many cells ), min features 200 (Only include cells with at least n features)
 lineage.data.full <- CreateSeuratObject(counts = lineage.data.full, project = "lineage", meta.data = exp_design, min.cells = 10, min.features = 200)
 
+
+lineage.data.full <- subset(lineage.data.full, subset = nFeature_RNA > 200 & nFeature_RNA < 7000)
+
+lineage.data.full[["percent.mt"]] <- PercentageFeatureSet(lineage.data.full, pattern = "^MT-")
+
+VlnPlot(lineage.data.full, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, group.by = "orig.ident")
+
 gc()
 
 lineage.data.full
@@ -157,12 +164,12 @@ gc()
 install.packages("ggplot2")
 library(ggplot2)
 
-ggplot(lineage.data.full@meta.data, aes(x = lineage.data.full$percent.mt)) + geom_histogram(binwidth = 0.5, fill="yellow", colour="black") + 
+ggplot(lineage.data.full@meta.data, aes(x = lineage.data.full$percent.mt)) + geom_histogram(binwidth = 0.5, fill="orange", colour="black") + 
   ggtitle("Distribution of Percentage Mitochondrion") + geom_vline(xintercept = 10)
 
 
 #Subset the data removing low-quality cells. Keep only cells with between X and Y features, < % MT ratio, RNA counts > Z 
-lineage.data.full <- subset(lineage.data.full, subset = nFeature_RNA > 200 & nFeature_RNA < 7000 & percent.mt < 10 & nCount_RNA > 1000)
+lineage.data.full <- subset(lineage.data.full, subset = nFeature_RNA > 200 & nFeature_RNA < 7000 & percent.mt < 20 & nCount_RNA > 1000)
 
 lineage.data.full
 dim(lineage.data.full)
@@ -171,11 +178,10 @@ str(lineage.data.full)
 
 
 #Same for split data
-data.tumor <- subset(lineage.data.full, subset = nFeature_RNA > 200 & nFeature_RNA < 6000 & percent.mt < 10 & nCount_RNA > 1000)
+data.tumor <- subset(lineage.data.full, subset = nFeature_RNA > 200 & nFeature_RNA < 7000 & percent.mt < 10 & nCount_RNA > 1000)
 
 
-#4 cells remaining
-dim(data.tumor)
+#Same cells remaining
 dim(data.tumor)
 gc()
 
@@ -197,12 +203,13 @@ data.tumor <- NormalizeData(data.tumor)
 
 lineage.data.full
 
-#Find 200 most variable genes
-lineage.data.full <- FindVariableFeatures(lineage.data.full, selection.method = "vst", nfeatures = 500)
+#Find 2000 most variable genes
+lineage.data.full <- FindVariableFeatures(lineage.data.full, selection.method = "vst", nfeatures = 2000)
 
 # Identify the 10 most highly variable genes
 top10 <- head(VariableFeatures(lineage.data.full), 10)
 
+write.csv(top10, "top10.csv")
 saveRDS(top10, "top10.rds")
 
 
@@ -253,7 +260,7 @@ DimPlot(lineage.data.full, reduction = "pca", group.by = "Factor.Value.sampling.
 
 DimPlot(lineage.data.full, reduction = "pca", group.by = "Sample.Characteristic.organism.part.")
 
-DimPlot(lineage.data.full, reduction = "pca", group.by = "Factor.Value.inferred.cell.type...authors.labels.")
+DimPlot(lineage.data.full, reduction = "pca", group.by = "Phase")
 
 
 # Run PCA with cell-cycle data
@@ -264,7 +271,7 @@ gc()
 rm(cell.cycle.pca)
 
 #Set variables to regress out as counts, mitochondrial and cell-cycle
-vars_to_regress <- c("nCount_RNA", "percent.mt", "S.Score", "G2M.Score", "Factor.Value.sampling.site.")
+vars_to_regress <- c("nCount_RNA", "percent.mt", "S.Score", "G2M.Score", "Sample.Characteristic.organism.part.", "Sample.Characteristic.sex.")
 
 #Scale data regressing out uninteresting variation
 lineage.data.full <- ScaleData(lineage.data.full, vars.to.regress = vars_to_regress)
@@ -284,23 +291,23 @@ VizDimLoadings(lineage.data.full, dims = 1:5, reduction = "pca")
 
 DimHeatmap(lineage.data.full, dims = 1:10, balanced = TRUE)
 
-ElbowPlot(lineage.data.full)
+ElbowPlot(lineage.data.full, ndims = 50)
 
 gc()
-rm(cell.cycle.pca)
+rm(exp_design)
 
 
 # Find neighbours for clustering
-lineage.data.full <- FindNeighbors(lineage.data.full, dims = 1:10)
+lineage.data.full <- FindNeighbors(lineage.data.full, dims = 1:27)
 
 #Do clustering
-lineage.data.full <- FindClusters(lineage.data.full, resolution = 1.2)
+lineage.data.full <- FindClusters(lineage.data.full, resolution = 0.6)
 
 install.packages("Rtsne")
 library(Rtsne)
 
 # Find tSNE 
-lineage.data.full <- RunTSNE(object = lineage.data.full, dims = 1:10, check_duplicates = F)
+lineage.data.full <- RunTSNE(object = lineage.data.full, dims = 1:27, check_duplicates = F)
 
 #Plot tSNE
 TSNEPlot(object = lineage.data.full)
@@ -323,9 +330,9 @@ library(reticulate)
 #reticulate::py_install(packages ='umap-learn')
 
 #Run UMAP, use same dimensions as before
-lineage.data.full <- RunUMAP(lineage.data.full, dims = 1:10)
+lineage.data.full <- RunUMAP(lineage.data.full, dims = 1:27)
 
-#Plot UMAP, coour by custers
+#Plot UMAP, colour by clusters
 DimPlot(lineage.data.full, reduction = "umap", group.by = "seurat_clusters", label = TRUE)
 
 #Used later after celltyping
@@ -374,7 +381,7 @@ VlnPlot(lineage.data.full, features = c("IL7R", "CCR7"))
 FeaturePlot(lineage.data.full, features = c(features.plot = c("IL7R", "CD14", "LYZ", "MS4A1", "CD8A", "FCGR3A", "MS4A7", "GNLY", "NKG7", "FCER1A", "CST3", "PPBP")))
 
 #Plot cannonical celltype marker genes using tsne
-FeaturePlot(lineage.data.full, reduction = "tsne", features = c("IL7R", "CD14", "LYZ", "MS4A1", "CD8A", "FCGR3A", "MS4A7", "GNLY", "NKG7", "FCER1A", "CST3", "PPBP"))
+FeaturePlot(lineage.data.full, reduction = "tsne", features = c("MKI67", "CD14", "LYZ", "MS4A1", "CD8A", "FCGR3A", "MS4A7", "GNLY", "NKG7", "FCER1A", "CST3", "PPBP"))
 
 #Find top10 markers per cluster based on log2 fold change
 top10 <- pbmc.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC)
@@ -582,10 +589,15 @@ full.data <- merge(x = lineage.data.celltyped, y = list(data.tumor$`tumour borde
 #Check data
 sort(table(full.data@active.ident), decreasing = TRUE)
 
+rm(lineage.data.celltyped)
+rm(data.tumor)
+rm(lineage.data.full)
+gc()
+
 #Find cell markers for all data, including name changes
-tumour_cell.markers <- FindAllMarkers(full.data, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+tumour_cell.markers <- FindAllMarkers(full.data, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.75)
 
 #Write as csv for manual gene identification via spreadsheet
-write.csv(tumour_cell.markers, "tumour_cell_markers.csv")
+write.csv(tumour_cell.markers, "tumour_cell_markers2.csv")
 
                                     
